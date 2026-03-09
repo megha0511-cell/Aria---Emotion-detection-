@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ARIA • Emotion-Aware AI</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#071022; --panel:#0f1426; --text:#e6ebff; --muted:#9aa4d6;
+      --brand:#7b6bff; --brand-2:#6c8cff; --success:#22c55e; --bubble-user:#233058; --bubble-aria:#161d3a;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%; margin:0; font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial; background:
+      radial-gradient(1200px 600px at 10% -10%, rgba(108,140,255,.08), transparent 60%),
+      linear-gradient(180deg,#071022 0%, #07101a 100%); color:var(--text)}
+    .app{width:min(1200px,100%); margin:28px auto; display:grid; grid-template-columns:280px 1fr; gap:18px; min-height:80vh; padding:12px}
+    .sidebar{background:var(--panel); border-radius:14px; padding:14px; border:1px solid rgba(255,255,255,.04); display:flex;flex-direction:column}
+    .btn{display:inline-block;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.04);color:var(--text);border:1px solid rgba(255,255,255,.03);cursor:pointer;margin-bottom:8px}
+    .session-item{padding:10px;border-radius:10px;margin-bottom:8px;cursor:pointer}
+    .session-item:hover{background:rgba(255,255,255,.03)}
+    .session-item.active{background:linear-gradient(90deg,var(--brand),var(--brand-2)); color:#fff}
+    .small{font-size:13px;color:var(--muted)}
+    .main{display:flex;flex-direction:column; gap:12px}
+    .header{display:flex;align-items:center;justify-content:space-between;padding:14px;border-radius:12px;background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.01)); border:1px solid rgba(255,255,255,.03)}
+    .brand{display:flex;align-items:center;gap:12px}
+    .avatar{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(135deg,var(--brand),var(--brand-2)); font-weight:700}
+    .chat{background:linear-gradient(180deg, rgba(255,255,255,.01), rgba(255,255,255,.00)); padding:18px;border-radius:12px; min-height:420px; overflow:auto; border:1px solid rgba(255,255,255,.03)}
+    .bubble{max-width:78ch;padding:14px;border-radius:12px;margin:12px 0;white-space:pre-wrap;line-height:1.45;border:1px solid rgba(255,255,255,.03)}
+    .me{margin-left:auto;background:var(--bubble-user)}
+    .aria{margin-right:auto;background:var(--bubble-aria)}
+    .composer{display:flex;gap:10px;align-items:center;margin-top:6px}
+    .field{flex:1;display:flex;align-items:center;background:rgba(255,255,255,.02);padding:10px;border-radius:12px;border:1px solid rgba(255,255,255,.03)}
+    .field input{flex:1;height:44px;border:0;background:transparent;color:var(--text);outline:none;padding:0 12px;font-size:15px}
+    .send{background:linear-gradient(135deg,var(--brand),var(--brand-2));padding:10px 16px;border-radius:12px;border:none;color:white;cursor:pointer}
+    .spinner { width:18px;height:18px;border-radius:50%;border:3px solid rgba(255,255,255,.08);border-top-color:var(--text); animation:spin .9s linear infinite; display:inline-block; vertical-align:middle }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (max-width:900px){.app{grid-template-columns:1fr; padding:8px}.sidebar{order:2}.main{order:1}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="sidebar">
+      <button id="newChatBtn" class="btn">➕ New Chat</button>
+      <div id="sessionList" style="margin-top:10px; overflow:auto; flex:1;"></div>
+      <button id="clearHistoryBtn" class="btn">🗑 Clear Chat</button>
+      <div style="height:10px"></div>
+      <div class="small">Tip: Use 🎤 for speech input, 🔊 to replay ARIA, ⏸/▶️ to pause/resume.</div>
+    </div>
+
+    <div class="main">
+      <div class="header">
+        <div class="brand">
+          <div class="avatar">A</div>
+          <div>
+            <div style="font-weight:700">ARIA</div>
+            <div class="small">Emotion-aware assistant • Online</div>
+          </div>
+        </div>
+        <div class="small" id="sessionIndicator">Session: -</div>
+      </div>
+
+      <div id="messages" class="chat" aria-live="polite"></div>
+
+      <div class="composer">
+        <div class="field">
+          <input id="userInput" placeholder="Type your message…" autocomplete="off" />
+        </div>
+        <button id="sendBtn" class="send">Send ➤</button>
+        <button id="micBtn" class="btn" title="Speak">🎤</button>
+        <button id="speakBtn" class="btn" title="Replay">🔊</button>
+        <button id="pauseBtn" class="btn" title="Pause">⏸</button>
+        <button id="resumeBtn" class="btn" title="Resume">▶️</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+const qs = s => document.querySelector(s);
+let currentSession = null;
+
+/* ---- TTS ---- */
+let preferredVoice=null;
+function loadVoices(){
+  const vs=speechSynthesis.getVoices();
+  if(!vs||vs.length===0)return;
+  preferredVoice=vs.find(v=>/english|en-US|Samantha|Microsoft/i.test(v.name))||vs[0];
+}
+speechSynthesis.onvoiceschanged=loadVoices;
+setTimeout(loadVoices,300);
+
+function speak(text,interrupt=true){
+  if(!text)return;
+  if(interrupt) speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text);
+  u.lang="en-US"; u.rate=1.0;
+  if(preferredVoice) u.voice=preferredVoice;
+  speechSynthesis.speak(u);
+}
+qs("#speakBtn").addEventListener("click",()=>{
+  const last=document.querySelector(".bubble.aria:last-child");
+  if(last){const txt=last.innerText.replace(/Detected Emotion:.*/,'');speak(txt);}
+});
+qs("#pauseBtn").addEventListener("click",()=>speechSynthesis.pause());
+qs("#resumeBtn").addEventListener("click",()=>speechSynthesis.resume());
+
+/* ---- STT ---- */
+let recognition=null;
+if('webkitSpeechRecognition'in window){
+  recognition=new webkitSpeechRecognition();
+  recognition.lang="en-US"; recognition.interimResults=false;
+  recognition.onresult=ev=>{
+    qs("#userInput").value=ev.results[0][0].transcript;
+    sendMessage();
+  };
+}else{
+  qs("#micBtn").disabled=true;
+}
+qs("#micBtn").addEventListener("click",()=>recognition&&recognition.start());
+
+/* ---- UI ---- */
+function addBubble(html,who='aria'){
+  const el=document.createElement("div");
+  el.className=`bubble ${who}`;
+  el.innerHTML=(who==='me'?'<b>You</b><br>':'<b>ARIA</b><br>')+html;
+  qs("#messages").appendChild(el);
+  qs("#messages").scrollTo({top:qs("#messages").scrollHeight,behavior:'smooth'});
+}
+
+/* ---- Sessions ---- */
+async function refreshSessions(){
+  const res=await fetch("/sessions"); const data=await res.json();
+  const list=qs("#sessionList"); list.innerHTML="";
+  data.sessions.forEach(id=>{
+    const item=document.createElement("div");
+    item.textContent=id;
+    item.className="session-item"+(id===currentSession?" active":"");
+    item.addEventListener("click",()=>loadSession(id));
+    list.appendChild(item);
+  });
+}
+async function loadSession(id){
+  currentSession=id; qs("#messages").innerHTML="";
+  qs("#sessionIndicator").textContent=`Session: ${id}`;
+  const res=await fetch(`/history/${id}`); const data=await res.json();
+  data.history.forEach(e=>{
+    addBubble(e.user,"me");
+    addBubble(`${e.aria}<br><i class="small">Detected Emotion: ${e.emotion}</i>`,"aria");
+  });
+  await refreshSessions();
+}
+async function newChat(){
+  const res=await fetch("/new_session",{method:"POST"}); const d=await res.json();
+  await loadSession(d.session_id);
+}
+async function clearHistory(){
+  if(!currentSession)return;
+  await fetch(`/clear_history/${currentSession}`,{method:"POST"});
+  qs("#messages").innerHTML=""; await refreshSessions();
+}
+
+/* ---- Messaging ---- */
+async function sendMessage(){
+  const msg=qs("#userInput").value.trim(); if(!msg)return;
+  addBubble(msg,"me"); qs("#userInput").value="";
+  const res=await fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({message:msg,session_id:currentSession})});
+  const d=await res.json(); currentSession=d.session_id;
+  qs("#sessionIndicator").textContent=`Session: ${currentSession}`;
+  addBubble(`${d.aria}<br><i class="small">Detected Emotion: ${d.emotion}</i>`,"aria");
+  speak(d.aria); await refreshSessions();
+}
+qs("#sendBtn").addEventListener("click",sendMessage);
+qs("#newChatBtn").addEventListener("click",newChat);
+qs("#clearHistoryBtn").addEventListener("click",clearHistory);
+qs("#userInput").addEventListener("keypress",e=>{if(e.key==="Enter")sendMessage();});
+
+/* Init */
+document.addEventListener("DOMContentLoaded",()=>newChat());
+
+
+</script>
+</body>
+</html>

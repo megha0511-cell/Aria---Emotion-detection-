@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chat History</title>
+</head>
+<body>
+    <h2>Chat History for {{ session.username }}</h2>
+    <a href="/">Back to Chat</a> | 
+    <a href="/logout">Logout</a>
+    <hr>
+    {% for chat in chats %}
+        <p><b>You:</b> {{ chat.user_message }}</p>
+        <p><b>Aria:</b> {{ chat.aria_response }} (Emotion: {{ chat.detected_emotion }})</p>
+        <p><i>{{ chat.timestamp }}</i></p>
+        <hr>
+    {% endfor %}
+</body>
+</html>
